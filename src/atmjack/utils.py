@@ -4,8 +4,8 @@ Single-service rule processing functions
 
 import copy
 
+from ScoutSuite.core.conditions import fix_path_string, pass_conditions
 from ScoutSuite.core.console import print_exception
-from ScoutSuite.core.conditions import pass_conditions, fix_path_string
 
 
 def recurse(all_info, current_info, target_path, current_path, config, add_suffix=False):
@@ -33,7 +33,7 @@ def recurse(all_info, current_info, target_path, current_path, config, add_suffi
     results = []
     if len(target_path) == 0:
         # Dashboard: count the number of processed resources here
-        setattr(config, "checked_items", getattr(config, "checked_items") + 1)
+        config.checked_items = config.checked_items + 1
         # Test for conditions...
         if pass_conditions(all_info, current_path, copy.deepcopy(config.conditions)):
             # id_suffix
@@ -80,9 +80,7 @@ def recurse(all_info, current_info, target_path, current_path, config, add_suffi
         results = results + recurse(all_info, current_info, [], split_current_path, config, add_suffix)
     else:
         print_exception(
-            'Unable to recursively test condition for path {}: unhandled case for "{}" type'.format(
-                current_path, type(current_info)
-            ),
+            f'Unable to recursively test condition for path {current_path}: unhandled case for "{type(current_info)}" type',
             additional_details={
                 "current_path": current_path,
                 "current_info": current_info,
