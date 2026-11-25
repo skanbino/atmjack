@@ -31,6 +31,7 @@ dev = [
     { include-group = "lint" },
     { include-group = "test" },
     { include-group = "typecheck" },
+    "pytest>=9.2.0",
 ]
 lint = [
     "ruff",

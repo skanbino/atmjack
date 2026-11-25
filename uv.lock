@@ -76,6 +76,7 @@ requires-dist = [
 dev = [
     { name = "coverage" },
     { name = "pytest" },
+    { name = "pytest", specifier = ">=9.2.0" },
     { name = "ruff" },
     { name = "ty" },
 ]
