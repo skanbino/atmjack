@@ -1,4 +1,4 @@
-﻿import pathlib
+import pathlib
 
 FILES = {}
 
@@ -166,7 +166,7 @@ def engagement_endpoint(req: EngRequest) -> dict:
 '''
 
 for rel, content in FILES.items():
- p = pathlib.Path(rel)
- p.parent.mkdir(parents=True, exist_ok=True)
- p.write_text(content, encoding="utf-8")
- print("WROTE", p, len(content), "bytes")
+    p = pathlib.Path(rel)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content, encoding="utf-8")
+    print("WROTE", p, len(content), "bytes")

@@ -40,4 +40,4 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
-*.swo
+*.swo_ref/
