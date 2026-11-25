@@ -145,3 +145,13 @@ def test_target_is_ip_literal(sample_scan: dict[str, Any]) -> None:
     assert len(parts) == 4
     for p in parts:
         assert 0 <= int(p) <= 255
+
+
+def test_modules_import():
+    import atmjack.access  # noqa: F401
+    import atmjack.api  # noqa: F401
+    import atmjack.creds  # noqa: F401
+    import atmjack.llm  # noqa: F401
+    import atmjack.orchestrator  # noqa: F401
+    import atmjack.scanner  # noqa: F401
+    import atmjack.tools  # noqa: F401

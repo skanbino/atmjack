@@ -4,9 +4,6 @@ Single-service rule processing functions
 
 import copy
 
-from ScoutSuite.core.conditions import fix_path_string, pass_conditions
-from ScoutSuite.core.console import print_exception
-
 
 def recurse(all_info, current_info, target_path, current_path, config, add_suffix=False):
     """
@@ -51,7 +48,7 @@ def recurse(all_info, current_info, target_path, current_path, config, add_suffi
     dbg_target_path = copy.deepcopy(target_path)
     current_path = copy.deepcopy(current_path)
     attribute = target_path.pop(0)
-    if type(current_info) == dict:
+    if isinstance(current_info, dict):
         if attribute in current_info:
             split_path = copy.deepcopy(current_path)
             split_path.append(attribute)
@@ -67,7 +64,7 @@ def recurse(all_info, current_info, target_path, current_path, config, add_suffi
                 )
     # To handle lists properly, I would have to make sure the list is properly ordered and I can use the index to
     # consistently access an object... Investigate (or do not use lists)
-    elif type(current_info) == list:
+    elif isinstance(current_info, list):
         for index, split_current_info in enumerate(current_info):
             split_current_path = copy.deepcopy(current_path)
             split_current_path.append(str(index))
@@ -80,7 +77,8 @@ def recurse(all_info, current_info, target_path, current_path, config, add_suffi
         results = results + recurse(all_info, current_info, [], split_current_path, config, add_suffix)
     else:
         print_exception(
-            f'Unable to recursively test condition for path {current_path}: unhandled case for "{type(current_info)}" type',
+            f"Unable to recursively test condition for path {current_path}: "
+            f'unhandled case for "{type(current_info)}" type',
             additional_details={
                 "current_path": current_path,
                 "current_info": current_info,
@@ -88,3 +86,29 @@ def recurse(all_info, current_info, target_path, current_path, config, add_suffi
             },
         )
     return results
+
+
+def fix_path_string(all_info, path, string) -> str:
+    """Local replacement for ScoutSuite.core.conditions.fix_path_string."""
+    return str(string).replace("/", ".")
+
+
+def pass_conditions(all_info, path, conditions=None) -> bool:
+    """Minimal local replacement for ScoutSuite.core.conditions.pass_conditions."""
+    if conditions is None:
+        return True
+    if isinstance(conditions, list):
+        return all(pass_conditions(all_info, path, c) for c in conditions)
+    return bool(conditions)
+
+
+def print_exception(message: str, additional_details=None) -> None:
+    """Local replacement for ScoutSuite.core.console.print_exception."""
+    print(f"[!] {message}")
+    if additional_details:
+        print(f" {additional_details}")
+
+
+def do_something_useful() -> None:
+    """Placeholder invoked by cli.py."""
+    print("atmjack ready")
