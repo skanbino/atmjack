@@ -56,3 +56,22 @@ site/
 _ref/
 
 _ref/
+
+# local helper scripts — never commit
+*.ps1
+*.env
+.env.local
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# db / logs
+*.db
+*.log
