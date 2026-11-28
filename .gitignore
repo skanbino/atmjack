@@ -61,3 +61,21 @@ requirements.txt
 *.session
 *.cookies
 config.ini
+
+# --- atmjack local artifacts (never commit) ---
+*.bak
+alerts.csv
+live.txt
+users.txt
+channels.txt
+passes.txt
+scan*.json
+scan_result.py
+extract*.py
+tg_scrape.py
+cli.py
+requirements.txt
+.github/codeql/
+*.session
+*.cookies
+config.ini
