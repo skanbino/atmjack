@@ -1,157 +1,172 @@
-# language: Python 3, file: tests/test_atmjack.py
-"""Unit tests — no network, no subprocess, no root. Pure logic + mocked IO."""
+"""Regression and behaviour tests for atmjack."""
 
 from __future__ import annotations
 
-import json
-import subprocess
-from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
-# ---------------------------------------------------------------------------
-# fixtures
-# ---------------------------------------------------------------------------
+from atmjack import api, cli, orchestrator, scanner, utils
+from atmjack.models import Host, ScanRecord, ScanState
+from atmjack.store import ScanStore
 
+NMAP_GREP = (
+ "# Nmap 7.94 scan initiated\n"
+ "Host: 10.0.0.1 (dc01.lab)\tPorts: 22/open/tcp//ssh///, 445/open/tcp//microsoft-ds///, "
+ "3389/open/tcp//ms-wbt-server///\n"
+ "Host: 10.0.0.2 (ws01.lab)\tPorts: 80/open/tcp//http///\n"
+)
 
-@pytest.fixture()
-def sample_scan() -> dict[str, Any]:
-    """A representative scan payload shaped like the CLI's JSON output."""
-    return {
-        "scan_id": "test-scan-001",
-        "target": "192.168.56.10",
-        "started": "2026-11-25T00:00:00Z",
-        "ended": "2026-11-25T00:00:08Z",
-        "modules": [
-            {"name": "recon", "status": "ok", "duration_ms": 2100},
-            {"name": "xfs_recover", "status": "ok", "duration_ms": 4300},
-            {"name": "pin_extract", "status": "failed", "reason": "no_xfs_found"},
-        ],
-        "findings": [
-            {"kind": "xfs_headers", "count": 312, "severity": "info"},
-            {"kind": "pin_blocks", "count": 0, "severity": "info"},
-        ],
-    }
+@dataclass
+class Cfg:
+ conditions: Any = None
+ checked_items: int = 0
+ id_suffix: str = field(default="")
 
+@pytest.fixture(autouse=True)
+def _isolate_api(monkeypatch: pytest.MonkeyPatch) -> Any:
+ monkeypatch.setattr(api, "API_KEY", None)
+ api.store.clear()
+ yield
+ api.store.clear()
 
-@pytest.fixture()
-def scan_file(tmp_path: Path, sample_scan: dict[str, Any]) -> Path:
-    p = tmp_path / "scan.json"
-    p.write_text(json.dumps(sample_scan), encoding="utf-8")
-    return p
+def test_parse_greppable_extracts_hosts_and_ports() -> None:
+ hosts = scanner.parse_greppable(NMAP_GREP)
+ assert [h.address for h in hosts] == ["10.0.0.1", "10.0.0.2"]
+ assert hosts[0].ports[445]["service"] == "microsoft-ds"
+ assert hosts[1].ports[80]["state"] == "open"
 
+def test_parse_greppable_ignores_junk_lines() -> None:
+ out = scanner.parse_greppable("garbage\nHost: 1.2.3.4\tPorts: 22/open/tcp//ssh///\n")
+ assert out[0].address == "1.2.3.4"
 
-# ---------------------------------------------------------------------------
-# scan payload shape
-# ---------------------------------------------------------------------------
+def test_build_report_flags_smb_and_rdp() -> None:
+ hosts = [
+  Host(
+   address="10.0.0.1",
+   ports={
+    445: {"state": "open", "service": "smb"},
+    3389: {"state": "open", "service": "rdp"},
+   },
+  )
+ ]
+ notes = {entry["note"] for entry in orchestrator.build_report(hosts)["access"]}
+ assert notes == {"SMB open", "RDP open"}
 
+def test_run_scan_dry_run_shape() -> None:
+ result = orchestrator.run_scan("10.0.0.0/24", dry_run=True, use_llm=False)
+ assert {"scan_id", "target", "started", "ended", "modules", "findings"} <= set(result)
+ assert result["target"] == "10.0.0.0/24"
+ assert any(m["name"] == "scanner" for m in result["modules"])
 
-def test_scan_payload_has_required_keys(sample_scan: dict[str, Any]) -> None:
-    for key in ("scan_id", "target", "started", "ended", "modules", "findings"):
-        assert key in sample_scan, f"missing top-level key: {key}"
+def test_run_scan_records_module_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+ def boom(*_args: Any, **_kwargs: Any) -> list[Host]:
+  raise RuntimeError("nmap exploded")
 
+ monkeypatch.setattr(orchestrator.scanner, "scan", boom)
+ result = orchestrator.run_scan("10.0.0.1", use_llm=False)
+ stage = next(m for m in result["modules"] if m["name"] == "scanner")
+ assert stage["status"] == "error"
+ assert "nmap exploded" in stage["error"]
 
-def test_modules_all_carry_status(sample_scan: dict[str, Any]) -> None:
-    for mod in sample_scan["modules"]:
-        assert "name" in mod
-        assert mod.get("status") in {"ok", "failed", "skipped"}, mod
+def test_run_scan_survives_missing_llm_key(monkeypatch: pytest.MonkeyPatch) -> None:
+ monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+ result = orchestrator.run_scan("10.0.0.1", dry_run=True, use_llm=True)
+ stage = next(m for m in result["modules"] if m["name"] == "llm")
+ assert stage["status"] == "error"
+ assert result["summary"] is None
 
+def test_scan_state_transitions() -> None:
+ record = ScanRecord(scan_id="x", target="t")
+ assert record.state is ScanState.queued
+ record.state = ScanState.running
+ record.state = ScanState.done
+ assert record.to_dict()["state"] == "done"
 
-def test_failed_modules_carry_reason(sample_scan: dict[str, Any]) -> None:
-    for mod in sample_scan["modules"]:
-        if mod["status"] == "failed":
-            assert "reason" in mod, f"failed module {mod['name']} lacks reason"
+def test_store_roundtrip(tmp_path: Any) -> None:
+ path = tmp_path / "scans.json"
+ store = ScanStore(path)
+ store.add(ScanRecord(scan_id="abc", target="10.0.0.1"))
+ store.update("abc", state=ScanState.done, result={"ok": True})
 
+ reloaded = ScanStore(path)
+ got = reloaded.get("abc")
+ assert got is not None
+ assert got.state is ScanState.done
+ assert got.result == {"ok": True}
 
-def test_findings_counts_are_non_negative(sample_scan: dict[str, Any]) -> None:
-    for finding in sample_scan["findings"]:
-        assert isinstance(finding["count"], int)
-        assert finding["count"] >= 0
+def test_store_missing_returns_none(tmp_path: Any) -> None:
+ assert ScanStore(tmp_path / "nope.json").get("zzz") is None
 
+def test_store_update_missing_returns_none() -> None:
+ assert ScanStore().update("nope", state=ScanState.done) is None
 
-# ---------------------------------------------------------------------------
-# json roundtrip via tmp_path — proves the contract is disk-safe
-# ---------------------------------------------------------------------------
+def test_pass_conditions_ops() -> None:
+ info = {"a": {"b": 5}}
+ assert utils.pass_conditions(info, [], {"path": "a.b", "op": "eq", "value": 5})
+ assert not utils.pass_conditions(info, [], {"path": "a.b", "op": "gt", "value": 9})
+ assert utils.pass_conditions(info, [], [{"path": "a.b", "op": "exists"}])
+ assert utils.pass_conditions(info, [], None)
+ assert not utils.pass_conditions(info, [], {"path": "a.z", "op": "exists"})
 
+def test_fix_path_string() -> None:
+ assert utils.fix_path_string({}, [], "a/b/c") == "a.b.c"
 
-def test_scan_roundtrip_from_disk(scan_file: Path, sample_scan: dict[str, Any]) -> None:
-    loaded = json.loads(scan_file.read_text(encoding="utf-8"))
-    assert loaded == sample_scan
-
-
-def test_scan_file_is_utf8(scan_file: Path) -> None:
-    raw = scan_file.read_bytes()
-    raw.decode("utf-8")  # raises on invalid
-
-
-# ---------------------------------------------------------------------------
-# subprocess mocking — how we test the CLI wrapper without the CLI
-# ---------------------------------------------------------------------------
-
-
-def test_cli_invocation_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mock subprocess.run so we can assert argv shape without running anything."""
-    captured: dict[str, Any] = {}
-
-    def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    result = subprocess.run(
-        ["python", "-m", "atmjack", "--scan", "192.168.56.10"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0
-    assert captured["args"] == ["python", "-m", "atmjack", "--scan", "192.168.56.10"]
-    assert captured["kwargs"]["capture_output"] is True
-
-
-def test_cli_nonzero_exit_detected(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda args, **kw: subprocess.CompletedProcess(args=args, returncode=2, stdout="", stderr="bad args"),
-    )
-    result = subprocess.run(
-        ["python", "-m", "atmjack", "--bogus"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 2
-    assert "bad args" in result.stderr
+def test_get_keys_walks_dict_and_list() -> None:
+ assert utils.get_keys(["a", "b"], Cfg(), all_info={"a": {"b": 1}}) == ["a.b"]
+ assert utils.get_keys(["a", "b"], Cfg(), all_info={"a": [{"b": 1}, {"b": 2}]}) == [
+  "a.0.b",
+  "a.1.b",
+ ]
+ assert utils.get_keys(["a", "z"], Cfg(), all_info={"a": {"b": 1}}) == []
 
 
-# ---------------------------------------------------------------------------
-# scan_id validation (a shape the api layer relies on)
-# ---------------------------------------------------------------------------
+def test_api_create_and_get(monkeypatch: pytest.MonkeyPatch) -> None:
+ monkeypatch.setattr(
+  api,
+  "run_scan",
+  lambda target, **_kw: {"scan_id": "s", "target": target, "modules": [], "findings": []},
+ )
+ client = TestClient(api.app)
+ created = client.post("/scans", json={"target": "10.0.0.1", "dry_run": True})
+ assert created.status_code == 202
 
+ scan_id = created.json()["scan_id"]
+ fetched = client.get(f"/scans/{scan_id}")
+ assert fetched.status_code == 200
+ assert fetched.json()["state"] == "done"
 
-def test_scan_id_is_url_safe(sample_scan: dict[str, Any]) -> None:
-    sid = sample_scan["scan_id"]
-    assert isinstance(sid, str) and sid
-    assert all(c.isalnum() or c in "-_" for c in sid), f"unsafe scan_id: {sid!r}"
+def test_api_404_for_unknown_scan() -> None:
+ assert TestClient(api.app).get("/scans/nope").status_code == 404
 
+def test_api_key_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+ monkeypatch.setattr(api, "API_KEY", "secret")
+ client = TestClient(api.app)
+ assert client.get("/scans").status_code == 401
+ assert client.get("/scans", headers={"X-API-Key": "secret"}).status_code == 200
 
-def test_target_is_ip_literal(sample_scan: dict[str, Any]) -> None:
-    parts = sample_scan["target"].split(".")
-    assert len(parts) == 4
-    for p in parts:
-        assert 0 <= int(p) <= 255
+def test_api_marks_failed_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+ def boom(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+  raise RuntimeError("kaboom")
 
+ monkeypatch.setattr(api, "run_scan", boom)
+ client = TestClient(api.app)
+ scan_id = client.post("/scans", json={"target": "10.0.0.1"}).json()["scan_id"]
+ body = client.get(f"/scans/{scan_id}").json()
+ assert body["state"] == "failed"
+ assert "kaboom" in body["error"]
 
-def test_modules_import():
-    import atmjack.access  # noqa: F401
-    import atmjack.api  # noqa: F401
-    import atmjack.creds  # noqa: F401
-    import atmjack.llm  # noqa: F401
-    import atmjack.orchestrator  # noqa: F401
-    import atmjack.scanner  # noqa: F401
-    import atmjack.tools  # noqa: F401
+def test_healthz() -> None:
+ assert TestClient(api.app).get("/healthz").json()["status"] == "ok"
+
+def test_cli_parser_scan_defaults() -> None:
+ args = cli.build_parser().parse_args(["scan", "10.0.0.1"])
+ assert args.target == "10.0.0.1"
+ assert args.ports == "1-1000"
+ assert args.dry_run is False
+
+def test_cli_dry_run_json(capsys: pytest.CaptureFixture[str]) -> None:
+ assert cli.main(["scan", "10.0.0.1", "--dry-run", "--no-llm", "--json"]) == 0
+ assert '"target": "10.0.0.1"' in capsys.readouterr().out

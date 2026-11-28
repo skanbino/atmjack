@@ -1,3 +1,3 @@
-"""atmjack -- network recon + AI agent controller."""
+"""atmjack package."""
 
 __version__ = "0.1.0"

@@ -1,112 +1,76 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "atmjack"
 version = "0.1.0"
-description = "network recon + AI agent controller"
+description = "ATM/AD recon pipeline: nmap discovery, hydra credential checks, windapsearch AD enumeration, and optional LLM triage."
 readme = "README.md"
-authors = [
-  {name = "Dark", email = "dark@example.com"}
-]
-maintainers = [
-  {name = "Dark", email = "dark@example.com"}
-]
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "ATMJack Maintainers" }]
+keywords = ["atm", "smartcard", "apdu", "emv", "security", "llm"]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Typing :: Typed",
+ "Development Status:: 3 - Alpha",
+ "Intended Audience:: Developers",
+ "License:: OSI Approved:: MIT License",
+ "Programming Language:: Python:: 3",
+ "Programming Language:: Python:: 3.10",
+ "Programming Language:: Python:: 3.11",
+ "Programming Language:: Python:: 3.12",
+ "Programming Language:: Python:: 3.13",
+ "Topic:: Security",
 ]
-license = {text = "MIT"}
 dependencies = [
-  "typer",
-  "rich",
-  "fastapi>=0.165.0",
+ "fastapi>=0.110,<1",
+ "uvicorn[standard]>=0.29,<1",
+ "pydantic>=2.5,<3",
+ "requests>=2.31,<3",
+ "pyscard>=2.0,<3",
+ "cryptography>=42,<46",
+ "PyYAML>=6.0,<7",
+ "rich>=13.7,<14",
+ "typer>=0.12,<1",
 ]
-requires-python = ">= 3.12"
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
-    { include-group = "lint" },
-    { include-group = "test" },
-    { include-group = "typecheck" },
-    "pytest>=9.2.0",
-]
-lint = [
-    "ruff",
-]
-test = [
-    "coverage",
-    "pytest",
-]
-typecheck = [
-    "ty",
-]
-docs = [
-    "zensical",
-    "mkdocstrings-python",
+ "httpx>=0.27,<1",
+ "pytest>=8.0,<9",
+ "pytest-cov>=5.0,<7",
+ "ruff>=0.6,<1",
+ "mypy>=1.11,<2",
+ "types-PyYAML>=6.0",
+ "types-requests>=2.31",
 ]
 
 [project.urls]
-bugs = "https://github.com/dark/atmjack/issues"
-changelog = "https://github.com/dark/atmjack/releases"
-documentation = "https://dark.github.io/atmjack/"
-homepage = "https://github.com/dark/atmjack"
+Homepage = "https://github.com/atmjack/atmjack"
+Issues = "https://github.com/atmjack/atmjack/issues"
 
 [project.scripts]
-atmjack = "atmjack.cli:app"
+atmjack = "atmjack.cli:main"
 
-[tool.ty]
-# All rules are enabled as "error" by default; no need to specify unless overriding.
-# Example override: relax a rule for the entire project (uncomment if needed).
-# rules.TY015 = "warn"  # For invalid-argument-type, warn instead of error.
+[tool.setuptools]
+package-dir = { "" = "src" }
 
-[tool.ruff]
-line-length = 120
-
-[tool.ruff.lint]
-select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # Pyflakes
-    "I",   # isort
-    "B",   # flake8-bugbear
-    "UP",  # pyupgrade
-]
-
-[tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = [
-    "typer.Argument",
-    "typer.Option",
-]
-
-[tool.coverage.run]
-branch = true
-parallel = true
-source = ["src/", "tests/"]
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = true
-fail_under = 50
-exclude_also = [
-    "if TYPE_CHECKING:",
-    "if typing.TYPE_CHECKING:",
-    "@overload",
-    "@typing.overload",
-    "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
-    "raise NotImplementedError",
-    "\\.\\.\\.",
-]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra --strict-markers"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/atmjack"]
+[tool.ruff]
+line-length = 100
+target-version = "py310"
 
-[tool.uv]
-package = true
-default-groups = ["dev"]
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true
