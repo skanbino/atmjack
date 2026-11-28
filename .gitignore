@@ -42,3 +42,22 @@ desktop.ini
 *.swp
 *.swo_ref/
 _ref/
+
+# atmjack artifacts
+*.bak
+alerts.csv
+live.txt
+users.txt
+channels.txt
+passes.txt
+scan.json
+scan_result.py
+extract.py
+extract_live.py
+tg_scrape.py
+cli.py
+requirements.txt
+.github/codeql/
+*.session
+*.cookies
+config.ini
